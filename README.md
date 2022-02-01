@@ -16,4 +16,4 @@ The basic design is to have bright, annoying LEDs notify me when meetings are im
 
 - From 5 minutes to 1 minute before the event start time: Green LED flashes with 500ms pulses.
 - From 1 minute down to the event time: Yellow LED flashes with 150ms pulses.
-- from 10 seconds before to 10 seconds after the time of the event:  Red LED will be turned on.
+- from 10 seconds before to 5 minutes after the time of the event:  Red LED will be turned on.

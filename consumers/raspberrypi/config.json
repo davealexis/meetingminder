@@ -1,0 +1,4 @@
+{
+    "mongoDataUrl": "https://data.mongodb-api.com/app/data-pvtrm/endpoint/data/beta/action",
+    "mongoDataApiKey": "<your-api-key>"
+}

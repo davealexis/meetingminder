@@ -3,41 +3,55 @@
 #include <WiFiClientSecure.h>
 #include <time.h>
 #include <ArduinoJson.h>
-#include <FastLED.h>
 
-// Create a "secrets.h" file with the following contents:
-// const char *ssid = "";
-// const char *password = "";
-// const char *ATLAS_API_KEY = "";
+// #define DEBUG
+// #define NEOPIXEL
+
+#ifdef NEOPIXEL
+#include <FastLED.h>
+#endif
+
+/**
+ * Create a "secrets.h" file with the following contents:
+ *      const char *ssid = "";
+ *      const char *password = "";
+ *      const char *ATLAS_API_KEY = "";
+ */
 #include "secrets.h"
 
-#define DEBUG
-
-const long NOTIFICATION_THRESHOLD_UPCOMING = -300;    // 5 minutes
-const long NOTIFICATION_THRESHOLD_IMMINENT = -60;     // 1 minute
-const long NOTIFICATION_THRESHOLD_NOW = -10;          // 10 seconds
-const long NOTIFICATION_THRESHOLD_DONE = 60;          // 1 minute after
+const long NOTIFICATION_THRESHOLD_UPCOMING = -300; // 5 minutes
+const long NOTIFICATION_THRESHOLD_IMMINENT = -60;  // 1 minute
+const long NOTIFICATION_THRESHOLD_NOW = -10;       // 10 seconds
+const long NOTIFICATION_THRESHOLD_DONE = 300;      // 5 minutes after
 
 const char *MONGODB_QUERY_P1 PROGMEM = "{"
-                                    "\"dataSource\": \"ClusterOne\","
-                                    "\"database\": \"notifications\","
-                                    "\"collection\": \"events\","
-                                    "\"pipeline\": [{"
-                                    "\"$match\": {\"startTime\": {\"$gte\": \"";
+                                       "\"dataSource\": \"ClusterOne\","
+                                       "\"database\": \"notifications\","
+                                       "\"collection\": \"events\","
+                                       "\"pipeline\": [{"
+                                       "\"$match\": {\"startTime\": {\"$gte\": \"";
 const char *MONGODB_QUERY_P2 PROGMEM = "\"}}},"
-                                    "{\"$sort\": {\"startTime\": 1}},"
-                                    "{\"$limit\": 1},"
-                                    "{\"$set\": {\"startTime\": {\"$toDate\": \"$startTime\"}}},"
-                                    "{\"$project\": {\"_id\": 0,\"title\": 1,\"startTime\": 1}}]}";
+                                       "{\"$sort\": {\"startTime\": 1}},"
+                                       "{\"$limit\": 1},"
+                                       "{\"$set\": {\"startTime\": {\"$toDate\": \"$startTime\"}}},"
+                                       "{\"$project\": {\"_id\": 0,\"title\": 1,\"startTime\": 1}}]}";
 const char *ATLAS_HOST PROGMEM = "data.mongodb-api.com";
 const uint16_t ATLAS_PORT = 443;
 int mongoDbQueryLength = 0;
 
 #define LED_ON LOW
 #define LED_OFF HIGH
+
+#ifdef NEOPIXEL
 #define NUM_LEDS 1
 #define LED_PIN 5
 #define COLOR_ORDER GRB
+CRGB leds[NUM_LEDS];
+#else
+#define RED_LED_PIN 13
+#define GREEN_LED_PIN 12
+#define BLUE_LED_PIN 14
+#endif
 
 enum Colors
 {
@@ -47,8 +61,6 @@ enum Colors
     Yellow
 };
 
-CRGB leds[NUM_LEDS];
-
 enum EventStatus
 {
     WAITING,
@@ -56,7 +68,6 @@ enum EventStatus
     PASSED
 };
 
-// --- Event Data Structures ---
 struct Event
 {
     tm startTime;
@@ -65,45 +76,63 @@ struct Event
 
 Event nextEvent;
 bool refreshed;
+bool eventIsNow;
 Event tempEvent;
 
 // --- Tasks ---
 
-// Task: NTP tine sync
-// Description: Syncs the time with the NTP server every hour
+/**
+ * Task: NTP tine sync
+ * Description: Syncs the time with the NTP server every hour
+ */
 void ntpSyncTime();
 Task timeSyncer(1000 * 60 * 60, TASK_FOREVER, &ntpSyncTime);
 
-// Task: Event Fetcher
-// Description: Fetches the latest events from MongoDB.
-// Interval: 2 minutes 
+/**
+ * Task: Event Fetcher
+ * Description: Fetches the next event from the MongoDB
+ * Interval: Every 2 minutes
+ */
 void fetchEvents();
 Task eventFetcher(1000 * 60 * 2, TASK_FOREVER, &fetchEvents);
 
-// Task: Event Manager
-// Description: Waits for the next event, and starts notifying the user
-//              starting from 5 minutes before the event.
-// Interval: 10 seconds
+/**
+ * Task: Event Manager
+ * Description: Waits for the next event, and starts notifying the user
+ *              starting from 5 minutes before the event.
+ * Interval: 10 seconds
+ */
 void checkEvents();
 Task eventManager(10 * 1000, TASK_FOREVER, &checkEvents);
 
-// Task: Event Notifier
-// Description: Notifies the user of the next event
-// Interval: 2 seconds
+/**
+ * Task: Event Notifier
+ * Description: Notifies the user of the next event
+ * Interval: 2 seconds
+ */
 void notifyEvent();
 Task eventNotifier(2 * 1000, TASK_FOREVER, &notifyEvent);
 
 Scheduler taskRunner;
-
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 void setup()
 {
-    #ifdef DEBUG
+#ifdef DEBUG
     Serial.begin(115200);
-    #endif
+    while (!Serial)
+    {
+        ; // wait for serial port to connect. Needed for native USB port only
+    }
+#endif
 
+#ifdef NEOPIXEL
     FastLED.addLeds<WS2812, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS);
     FastLED.setBrightness(100);
+#else
+    pinMode(RED_LED_PIN, OUTPUT);
+    pinMode(GREEN_LED_PIN, OUTPUT);
+    pinMode(BLUE_LED_PIN, OUTPUT);
+#endif
 
     nextEvent.startTime = {0, 0, 0, 0, 0, 0, 0, 0, 0};
     nextEvent.status = WAITING;
@@ -116,24 +145,24 @@ void setup()
     {
         flashLed(Red, 250);
 
-        #ifdef DEBUG
+#ifdef DEBUG
         Serial.print(".");
-        #endif
+#endif
     }
 
-    #ifdef DEBUG
+#ifdef DEBUG
     Serial.println("");
     Serial.println("WiFi connected");
     Serial.println("IP address: ");
     Serial.println(WiFi.localIP());
-    #endif
+#endif
 
     ntpSyncTime();
 
     // Let the user know we're almost ready to rock.
     flashLed(Yellow, 500);
     flashLed(Yellow, 500);
-    
+
     taskRunner.init();
 
     taskRunner.addTask(eventFetcher);
@@ -146,7 +175,7 @@ void setup()
     eventNotifier.enable();
 
     // Delay the start the time syncer in 1 hour. If we start the time syncer immediately,
-    // it will sync the time as soon as the task is run. Since we already sync the time from 
+    // it will sync the time as soon as the task is run. Since we already sync the time from
     // the NTP server on startup, we don't want to sync the time again immediately.
     taskRunner.addTask(timeSyncer);
     timeSyncer.enableDelayed(1000 * 60 * 60);
@@ -161,12 +190,14 @@ void loop()
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 void fetchEvents()
 {
-    // Fetch the latest set of events from MongoDB
-    // TODO: Implement. For now, just flash an LED.
+    if (nextEvent.status == NOTIFYING and !eventIsNow)
+    {
+        return;
+    }
 
-    #ifdef DEBUG
+#ifdef DEBUG
     Serial.println("Fetching events...");
-    #endif
+#endif
 
     time_t now;
     struct tm *timeinfo;
@@ -176,7 +207,7 @@ void fetchEvents()
     char currentTimeStr[20];
     strftime(currentTimeStr, sizeof(currentTimeStr), "%G-%m-%dT%T", timeinfo);
 
-    #ifdef DEBUG
+#ifdef DEBUG
     Serial.print("Current time: ");
     Serial.println(currentTimeStr);
     Serial.print(timeinfo->tm_hour);
@@ -184,28 +215,28 @@ void fetchEvents()
     Serial.print(timeinfo->tm_min);
     Serial.print(":");
     Serial.println(timeinfo->tm_sec);
-    #endif
+#endif
 
     // Use WiFiClientSecure class to create TLS connection
     WiFiClientSecure client;
-    client.setInsecure(); //the magic line, use with caution
+    client.setInsecure(); // the magic line, use with caution
 
-    #ifdef DEBUG
+#ifdef DEBUG
     Serial.println("Connecting to MongoDB");
-    #endif
+#endif
 
     if (!client.connect(ATLAS_HOST, ATLAS_PORT))
     {
-        #ifdef DEBUG
+#ifdef DEBUG
         Serial.println("Connection failed");
-        #endif
+#endif
 
         return;
     }
 
-    #ifdef DEBUG
+#ifdef DEBUG
     Serial.print("Requesting data...");
-    #endif
+#endif
 
     // Make a HTTP request:
     client.println("POST /app/data-pvtrm/endpoint/data/beta/action/aggregate HTTP/1.1");
@@ -221,14 +252,18 @@ void fetchEvents()
     client.println("Connection: close");
     client.println();
 
+    yield();
+
     // Body
     client.print(MONGODB_QUERY_P1);
     client.print(currentTimeStr);
     client.println(MONGODB_QUERY_P2);
 
-    #ifdef DEBUG
+    yield();
+
+#ifdef DEBUG
     Serial.println("Request sent");
-    #endif
+#endif
 
     while (client.connected())
     {
@@ -236,22 +271,32 @@ void fetchEvents()
 
         if (line == "\r")
         {
-            #ifdef DEBUG
+#ifdef DEBUG
             Serial.println("Headers received");
-            #endif
+#endif
 
             break;
         }
     }
 
-    #ifdef DEBUG
-    Serial.println("Parsing response");
-    #endif
+    // yield();
+
+#ifdef DEBUG
+    Serial.println("Readnng response");
+#endif
 
     String responseBody = client.readStringUntil('\n');
-    
-    DynamicJsonBuffer jsonBuffer;
+
+#ifdef DEBUG
+    Serial.println("Parsing response");
+#endif
+
+    yield();
+
+    StaticJsonBuffer<256> jsonBuffer;
     JsonObject &documents = jsonBuffer.parse(responseBody);
+
+    yield();
 
     if (documents.containsKey("documents"))
     {
@@ -265,21 +310,25 @@ void fetchEvents()
             const char *title = event["title"];
             const char *startTime = event["startTime"];
 
-            #ifdef DEBUG
+#ifdef DEBUG
             Serial.print(title);
             Serial.print(" :: ");
             Serial.println(startTime);
-            #endif
+#endif
 
             tm eventStartTime = parseTime(startTime);
-            
-            // difftime
+
+            yield();
 
             if (compareTimes(eventStartTime, nextEvent.startTime) != 0)
             {
                 // Don't update if nextEvent is currently being nofified. Cache the update
                 // and use it after the notification period completes
-                if (nextEvent.status == NOTIFYING) {
+                if (nextEvent.status == NOTIFYING)
+                {
+#ifdef DEBUG
+                    Serial.println("Caching event");
+#endif
                     tempEvent.startTime = eventStartTime;
                     refreshed = true;
                 }
@@ -289,24 +338,24 @@ void fetchEvents()
                 }
             }
 
-            #ifdef DEBUG
+#ifdef DEBUG
             Serial.println(asctime(&eventStartTime));
             Serial.println("-------------------------");
-            #endif
+#endif
         }
-        #ifdef DEBUG
+#ifdef DEBUG
         else
         {
             Serial.println("No events found");
         }
-        #endif
+#endif
     }
-    #ifdef DEBUG
+#ifdef DEBUG
     else
     {
         Serial.println("No events found");
     }
-    #endif
+#endif
 
     client.stop();
 }
@@ -316,10 +365,11 @@ void checkEvents()
 {
     // Update the nextEvent with the updated event data if an update happened
     // while we were in our notification period.
-    if (nextEvent.status == WAITING && refreshed) {
-        #ifdef DEBUG
+    if (nextEvent.status == WAITING && refreshed)
+    {
+#ifdef DEBUG
         Serial.println("Refreshing event that was updated during notification period");
-        #endif
+#endif
 
         nextEvent.startTime = tempEvent.startTime;
         refreshed = false;
@@ -340,12 +390,14 @@ void checkEvents()
     {
         if (timeDiff >= NOTIFICATION_THRESHOLD_DONE)
         {
-            #ifdef DEBUG
+#ifdef DEBUG
             Serial.println("The event has passed");
-            #endif
+#endif
 
+            ledOff();
             nextEvent.startTime = {0, 0, 0, 0, 0, 0, 0, 0, 0};
             nextEvent.status = WAITING;
+            eventIsNow = false;
         }
 
         return;
@@ -353,11 +405,11 @@ void checkEvents()
 
     if (timeDiff >= NOTIFICATION_THRESHOLD_UPCOMING && timeDiff < NOTIFICATION_THRESHOLD_DONE)
     {
-        // 5 minutes until the event starts
-        // Start the countdown
-        #ifdef DEBUG
+// 5 minutes until the event starts
+// Start the countdown
+#ifdef DEBUG
         Serial.println("About to start the event");
-        #endif
+#endif
         nextEvent.status = NOTIFYING;
     }
 }
@@ -372,12 +424,13 @@ void notifyEvent()
 
     time_t eventStartTime = mktime(&nextEvent.startTime);
     long timeDiff = long(difftime(time(nullptr), eventStartTime));
-    
+
     if (NOTIFICATION_THRESHOLD_NOW <= timeDiff && timeDiff < NOTIFICATION_THRESHOLD_DONE)
     {
         // Turn on red LED to let the user know they better get their arse into the meeting.
         ledOn(Red);
-        delay(500);
+        eventIsNow = true;
+        wait(1000);
     }
     else if (NOTIFICATION_THRESHOLD_IMMINENT <= timeDiff && timeDiff < NOTIFICATION_THRESHOLD_NOW)
     {
@@ -390,10 +443,11 @@ void notifyEvent()
         // Flash green LED to let the user know that an event is starting within the next 5 minutes.
         flashLed(Green, 500);
     }
-    else {
-        #ifdef DEBUG
+    else
+    {
+#ifdef DEBUG
         Serial.println("Notification done");
-        #endif
+#endif
 
         nextEvent.status = WAITING;
 
@@ -417,9 +471,9 @@ tm parseTime(const char *datetime)
 // UTC is perfectly fine for our needs. The Google calendar times are in UTC.
 void ntpSyncTime()
 {
-    #ifdef DEBUG
+#ifdef DEBUG
     Serial.print("Waiting for NTP time sync: ");
-    #endif
+#endif
 
     // Set time via NTP, as required for x.509 validation
     configTime(0, 0, "pool.ntp.org", "time.nist.gov");
@@ -428,23 +482,22 @@ void ntpSyncTime()
 
     while (now < 8 * 3600 * 2)
     {
-        #ifdef DEBUG
+#ifdef DEBUG
         Serial.print(".");
-        #endif
-        
-        yield();
-        delay(100);
+#endif
+
+        wait(100);
         now = time(nullptr);
     }
 
     struct tm timeinfo;
     gmtime_r(&now, &timeinfo);
 
-    #ifdef DEBUG    
+#ifdef DEBUG
     Serial.println("");
     Serial.print("Current time: ");
     Serial.println(asctime(&timeinfo));
-    #endif
+#endif
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -452,67 +505,70 @@ void ntpSyncTime()
 // This turns the LED on with the specified color, then turns it off.
 void flashLed(Colors color, int duration)
 {
+
     ledOn(color);
-    delay(duration);
+    wait(duration);
     ledOff();
-    delay(duration);
+    wait(duration);
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // Turns on the neopixel LED with the specified color.
 void ledOn(Colors color)
 {
+#ifdef NEOPIXEL
     leds[0] = CRGB(
         color == Red || color == Yellow ? 255 : 0,
-        color == Green ? 255 : color == Yellow ? 250 : 0,
+        color == Green ? 255 : color == Yellow ? 250
+                                               : 0,
         color == Blue ? 255 : 0);
 
     FastLED.show();
+#else
+    digitalWrite(RED_LED_PIN, color == Red || color == Yellow ? LED_ON : LED_OFF);
+    digitalWrite(GREEN_LED_PIN, color == Green || color == Yellow ? LED_ON : LED_OFF);
+    digitalWrite(BLUE_LED_PIN, color == Blue ? LED_ON : LED_OFF);
+#endif
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-// Turns off the neopixel LED.
+// Turns off the LEDs.
 void ledOff()
 {
+#ifdef NEOPIXEL
     leds[0] = CRGB(0, 0, 0);
     FastLED.show();
+#else
+    digitalWrite(RED_LED_PIN, LED_OFF);
+    digitalWrite(GREEN_LED_PIN, LED_OFF);
+    digitalWrite(BLUE_LED_PIN, LED_OFF);
+#endif
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 int compareTimes(tm a, tm b)
 {
-    if (a.tm_hour < b.tm_hour)
+    if (a.tm_hour < b.tm_hour || a.tm_min < b.tm_min || a.tm_sec < b.tm_sec)
     {
         return -1;
     }
-    else if (a.tm_hour > b.tm_hour)
+    else if (a.tm_hour > b.tm_hour || a.tm_min > b.tm_min || a.tm_sec > b.tm_sec)
     {
         return 1;
     }
     else
     {
-        if (a.tm_min < b.tm_min)
-        {
-            return -1;
-        }
-        else if (a.tm_min > b.tm_min)
-        {
-            return 1;
-        }
-        else
-        {
-            if (a.tm_sec < b.tm_sec)
-            {
-                return -1;
-            }
-            else if (a.tm_sec > b.tm_sec)
-            {
-                return 1;
-            }
-            else
-            {
-                return 0;
-            }
-        }
+        return 0;
+    }
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+void wait(int ms)
+{
+    unsigned long start = millis();
+
+    while (millis() - start < ms)
+    {
+        yield();
     }
 }

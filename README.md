@@ -16,7 +16,7 @@ The first version is written in **Go and runs on a Raspberry Pi Zero W.** Go's c
 
 Then I created an **ESP8266 version that runs on a tiny ESP 01** module that is smaller than a postage stamp. The code running on the ESP8266 does basically the same thing as the Go version on the Raspberry Pi, except it is written in C/C++ (Arduino). The entire circuit board (with the ESP 01, custom power supply, and RGB LED) all fit nicely within the enclosure shown below. This is actually the frosted top of a dead LED floodlight that I re-purposed.
 
-![Meeting Minder](./images/Meeting Minder.png)
+![Meeting Minder](https://github.com/davealexis/meetingminder/blob/main/images/Meeting%20Minder.png)
 
 The downside of the ESP8266 is that the lack of true multitasking. Even though the code uses the TaskScheduler library to implement concurrent tasks, the library implements cooperative multitasking. This means that each task must voluntarily yield control to other tasks. What's the problem with this? Well, if the task responsible for blinking the LED in pulses of specific durations (e.g. once every 500 milliseconds) is interrupted by the task that fetches updated meetings, the blinking will stutter or stop while the lengthy, blocking operation of calling a REST API and waiting for the result is in flight. I get around this by preventing meeting refreshes during a meeting notification cycle. This is not really a big deal, since the only time it would make sense to have a meeting update while the user is being notified of an upcoming meeting is if that meeting was cancelled at the last minute.
 

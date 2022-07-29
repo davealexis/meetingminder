@@ -60,12 +60,10 @@ TaskHandle_t notificationTaskHandle;
 
 #ifdef NEOPIXEL
     #define NUM_LEDS 1
-    #define LED_PIN 2
+    #define LED_PIN 21
     #define COLOR_ORDER GRB
     CRGB leds[NUM_LEDS];
 #else
-    // When building for the ESP01 form factor ESP8266 module, use pins 1, 2, adn 3 instead of 13, 12, adn 14.
-    // The pins 13, 12, and 14 are suitable for the NodeMCU for factor ESP8266 board.
     #define RED_LED_PIN 21
     #define GREEN_LED_PIN 22
     #define BLUE_LED_PIN 23

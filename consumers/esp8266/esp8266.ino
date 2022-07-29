@@ -54,11 +54,22 @@ int mongoDbQueryLength = 0;
     #define COLOR_ORDER GRB
     CRGB leds[NUM_LEDS];
 #else
-    // When building for the ESP01 form factor ESP8266 module, use pins 1, 2, adn 3 instead of 13, 12, adn 14.
-    // The pins 13, 12, and 14 are suitable for the NodeMCU for factor ESP8266 board.
-    #define RED_LED_PIN 13
-    #define GREEN_LED_PIN 12
-    #define BLUE_LED_PIN 14
+    // TUncomment the section of pins you want to use depending on the type of ESP8266 board you have.
+
+    // ESP01 module
+    #define RED_LED_PIN 1
+    #define GREEN_LED_PIN 2
+    #define BLUE_LED_PIN 3
+
+    // // Wemos D1 Mini
+    // #define RED_LED_PIN 2
+    // #define GREEN_LED_PIN 4
+    // #define BLUE_LED_PIN 5
+
+    // // NodeMCU form factor board
+    // #define RED_LED_PIN 13
+    // #define GREEN_LED_PIN 12
+    // #define BLUE_LED_PIN 14
 #endif
 
 enum Colors

@@ -1,8 +1,30 @@
+/*
+    ------------------------------------------------------------------------------------------
+    MeetingMinder Publisher
+    ------------------------------------------------------------------------------------------
+
+    This code integrates with a Google Calendar, and publises basic information about events to an
+    intermediary database used by one or more MeetingMinder client devices or apps.
+    
+    Create a new file in this project called "secrets" (it will get the full name of "secrets.gs"), and
+    add the following contents with the placeholders replaced with your actual values:
+
+        const apiKey = "<your MongoDB Atlas API key for Data API>"
+
+    The MongoDB Data API URLs below are the same for any account/project/database, since those
+    identifiers are specified in the body of Data API requests.
+
+    The "eventSource" constant identifies the calendar events for this particular calendar integration
+    in the MongoDB data. This enables each calendar integration to manage its own data without affecting
+    data for other calendars. It also enables extensions to the MeetingMinder clients that do things like
+    display rich information about upcoming events.
+
+    ------------------------------------------------------------------------------------------
+*/
+
 const mongoDataInsertApi = 'https://data.mongodb-api.com/app/data-pvtrm/endpoint/data/beta/action/insertMany'
 const mongoDataDeleteApi = 'https://data.mongodb-api.com/app/data-pvtrm/endpoint/data/beta/action/deleteMany'
-
-const mongoApiKey = "<your-api-key>"        // <-- Replace with your api key
-const eventSource = "<Calendar Name>"       // <-- Replace with your calendar name
+const eventSource = "Work Calendar"
 
 
 // ------------------------------------------------------------------------------------------
@@ -60,7 +82,7 @@ function sendData(data) {
         "headers": {
             "Content-Type": "application/json",
             "Access-Control-Request-Headers": "*",
-            "api-key": apiKey
+            "api-key": mongoDbApiKey
         },
         "payload": JSON.stringify({
             "dataSource": "ClusterOne",
@@ -80,7 +102,7 @@ function deleteExistingEvents() {
         "headers": {
             "Content-Type": "application/json",
             "Access-Control-Request-Headers": "*",
-            "api-key": apiKey
+            "api-key": mongoDbApiKey
         },
         "payload": JSON.stringify({
             "dataSource": "ClusterOne",

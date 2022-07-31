@@ -2,7 +2,7 @@
 #include <WiFiClientSecure.h>
 #include <time.h>
 #include <ArduinoJson.h>
-#include "soc/soc.h" //disable brownout problems
+#include "soc/soc.h"           //disable brownout problems
 #include "soc/rtc_cntl_reg.h"  //disable brownout problems
 
 /**
@@ -28,7 +28,7 @@ const long NOTIFICATION_THRESHOLD_DONE = 300;         // 5 minutes after
 const portTickType EVENT_FETCH_INTERVAL_SECONDS = ((120 * 1000) / portTICK_PERIOD_MS);        // 2 minutes
 const portTickType EVENT_CHECK_INTERVAL_SECONDS = ((10 * 1000) / portTICK_PERIOD_MS);         // 10 seconds between checking whether the next event is about to start
 const portTickType EVENT_NOTIFY_INTERVAL_SECONDS = ((2 * 1000) / portTICK_PERIOD_MS);         // 2 seconds between LED shenanegans
-const portTickType NTP_TIME_REFRESH_INTERVAL = ((600 * 1000) / portTICK_PERIOD_MS);           // 10 minutes between NTP ticks. Actual refresh happens after 10 ticks;
+const portTickType NTP_TIME_REFRESH_INTERVAL = ((600 * 1000) / portTICK_PERIOD_MS);           // 10 minutes between NTP ticks. Actual refresh happens after 144 ticks (24 hours);
 
 // Define the start and hours within which meetings are refreshed.
 // Outside of these hours, the device will not refresh the meeting list, and can go to sleep.
@@ -36,22 +36,41 @@ const portTickType NTP_TIME_REFRESH_INTERVAL = ((600 * 1000) / portTICK_PERIOD_M
 const int  REFRESH_START_HOUR_UTC = 12;               // 7amEST (12PM UTC)
 const int  REFRESH_END_HOUR_UTC = 1;                  // 8pmEST (1AM UTC)
 
-const char *MONGODB_QUERY_P1 PROGMEM = "{"
-                                    "\"dataSource\": \"ClusterOne\","
-                                    "\"database\": \"notifications\","
-                                    "\"collection\": \"events\","
-                                    "\"pipeline\": [{"
-                                    "\"$match\": {\"startTime\": {\"$gte\": \"";
-const char *MONGODB_QUERY_P2 PROGMEM = "\"}}},"
-                                    "{\"$sort\": {\"startTime\": 1}},"
-                                    "{\"$limit\": 1},"
-                                    "{\"$set\": {\"startTime\": {\"$toDate\": \"$startTime\"}}},"
-                                    "{\"$project\": {\"_id\": 0,\"title\": 1,\"startTime\": 1}}]}";
+const char *MONGODB_QUERY PROGMEM = "{"
+                                    " \"dataSource\": \"ClusterOne\","
+                                    "   \"database\": \"notifications\","
+                                    "   \"collection\": \"events\","
+                                    "   \"pipeline\": ["
+                                    "       {"
+                                    "           \"$addFields\": {"
+                                    "               \"timeDiff\": {"
+                                    "                   \"$dateDiff\": {"
+                                    "                       \"startDate\": \"$$NOW\","
+                                    "                       \"endDate\": \"$startTime\","
+                                    "                       \"unit\": \"second\""
+                                    "                   }"
+                                    "               }"
+                                    "           }"
+                                    "       },"
+                                    "       {"
+                                    "           \"$match\": { \"$expr\": { \"$gt\": [ \"$timeDiff\", 0 ] } }"
+                                    "       },"
+                                    "       {"
+                                    "           \"$sort\": { \"startTime\": 1 }"
+                                    "       },"
+                                    "       {"
+                                    "           \"$limit\": 1"
+                                    "       },"
+                                    "       {"
+                                    "           \"$project\": { \"_id\": 0, \"title\": 1, \"startTime\": 1 }"
+                                    "       }"
+                                    "   ]"
+                                    "}";
 const char *ATLAS_HOST PROGMEM = "data.mongodb-api.com";
 const uint16_t ATLAS_PORT = 443;
 int mongoDbQueryLength = 0;
 
-volatile int ntpCountdown = 10;
+volatile int ntpCountdown = 144;
 volatile bool syncTime;
 TaskHandle_t notificationTaskHandle;
 
@@ -113,7 +132,7 @@ void timeSyncer(void *parameter)
 
         if (ntpCountdown <= 0)
         {
-            ntpCountdown = 10;
+            ntpCountdown = 144;
             syncTime = true;
         }
 
@@ -195,8 +214,7 @@ void setup()
 
     nextEvent.startTime = {0, 0, 0, 0, 0, 0, 0, 0, 0};
     nextEvent.status = WAITING;
-    mongoDbQueryLength = strlen_P(MONGODB_QUERY_P1) + strlen_P(MONGODB_QUERY_P2) + 20;
-
+    mongoDbQueryLength = strlen_P(MONGODB_QUERY);
     WiFi.mode(WIFI_STA);
     WiFi.hostname("MeetingMinder_ESP32");
     WiFi.begin(ssid, password);
@@ -333,9 +351,7 @@ void fetchEvents()
     client.println();
 
     // Body
-    client.print(MONGODB_QUERY_P1);
-    client.print(currentTimeStr);
-    client.println(MONGODB_QUERY_P2);
+    client.print(MONGODB_QUERY);
 
     #ifdef DEBUG
     Serial.println("Request sent");

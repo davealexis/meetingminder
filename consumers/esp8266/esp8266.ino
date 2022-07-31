@@ -30,17 +30,36 @@ const long NOTIFICATION_THRESHOLD_DONE = 300;      // 5 minutes after
 const int REFRESH_START_HOUR_UTC = 12; // 7amEST (12PM UTC)
 const int REFRESH_END_HOUR_UTC = 1;    // 8pmEST (1AM UTC)
 
-const char *MONGODB_QUERY_P1 PROGMEM = "{"
-                                       "\"dataSource\": \"ClusterOne\","
-                                       "\"database\": \"notifications\","
-                                       "\"collection\": \"events\","
-                                       "\"pipeline\": [{"
-                                       "\"$match\": {\"startTime\": {\"$gte\": \"";
-const char *MONGODB_QUERY_P2 PROGMEM = "\"}}},"
-                                       "{\"$sort\": {\"startTime\": 1}},"
-                                       "{\"$limit\": 1},"
-                                       "{\"$set\": {\"startTime\": {\"$toDate\": \"$startTime\"}}},"
-                                       "{\"$project\": {\"_id\": 0,\"title\": 1,\"startTime\": 1}}]}";
+const char *MONGODB_QUERY PROGMEM = "{"
+                                    " \"dataSource\": \"ClusterOne\","
+                                    "   \"database\": \"notifications\","
+                                    "   \"collection\": \"events\","
+                                    "   \"pipeline\": ["
+                                    "       {"
+                                    "           \"$addFields\": {"
+                                    "               \"timeDiff\": {"
+                                    "                   \"$dateDiff\": {"
+                                    "                       \"startDate\": \"$$NOW\","
+                                    "                       \"endDate\": \"$startTime\","
+                                    "                       \"unit\": \"second\""
+                                    "                   }"
+                                    "               }"
+                                    "           }"
+                                    "       },"
+                                    "       {"
+                                    "           \"$match\": { \"$expr\": { \"$gt\": [ \"$timeDiff\", 0 ] } }"
+                                    "       },"
+                                    "       {"
+                                    "           \"$sort\": { \"startTime\": 1 }"
+                                    "       },"
+                                    "       {"
+                                    "           \"$limit\": 1"
+                                    "       },"
+                                    "       {"
+                                    "           \"$project\": { \"_id\": 0, \"title\": 1, \"startTime\": 1 }"
+                                    "       }"
+                                    "   ]"
+                                    "}";
 const char *ATLAS_HOST PROGMEM = "data.mongodb-api.com";
 const uint16_t ATLAS_PORT = 443;
 int mongoDbQueryLength = 0;
@@ -155,9 +174,10 @@ void setup()
 
     nextEvent.startTime = {0, 0, 0, 0, 0, 0, 0, 0, 0};
     nextEvent.status = WAITING;
-    mongoDbQueryLength = strlen_P(MONGODB_QUERY_P1) + strlen_P(MONGODB_QUERY_P2) + 20;
+    mongoDbQueryLength = strlen_P(MONGODB_QUERY);
 
     WiFi.mode(WIFI_STA);
+    WiFi.hostname("MeetingMinder_ESP8266");
     WiFi.begin(ssid, password);
 
     while (WiFi.status() != WL_CONNECTED)
@@ -209,11 +229,6 @@ void loop()
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 void fetchEvents()
 {
-    if (nextEvent.status == NOTIFYING and !eventIsNow)
-    {
-        return;
-    }
-
     #ifdef DEBUG
     Serial.println("Fetching events...");
     #endif
@@ -244,10 +259,9 @@ void fetchEvents()
         return;
     }
 
+    #ifdef DEBUG
     char currentTimeStr[20];
     strftime(currentTimeStr, sizeof(currentTimeStr), "%G-%m-%dT%T", timeinfo);
-
-    #ifdef DEBUG
     Serial.print("Current time: ");
     Serial.println(currentTimeStr);
     Serial.print(timeinfo->tm_hour);
@@ -295,9 +309,7 @@ void fetchEvents()
     yield();
 
     // Body
-    client.print(MONGODB_QUERY_P1);
-    client.print(currentTimeStr);
-    client.println(MONGODB_QUERY_P2);
+    client.print(MONGODB_QUERY);
 
     yield();
 
@@ -319,10 +331,8 @@ void fetchEvents()
         }
     }
 
-    // yield();
-
     #ifdef DEBUG
-    Serial.println("Readnng response");
+    Serial.println("Reading response");
     #endif
 
     String responseBody = client.readStringUntil('\n');
@@ -333,8 +343,8 @@ void fetchEvents()
 
     yield();
 
-    StaticJsonBuffer<256> jsonBuffer;
-    JsonObject &documents = jsonBuffer.parse(responseBody);
+    StaticJsonDocument<512> documents;
+    DeserializationError err = deserializeJson(documents, responseBody);
 
     yield();
 
@@ -380,7 +390,6 @@ void fetchEvents()
             }
 
             #ifdef DEBUG
-            Serial.println(asctime(&eventStartTime));
             Serial.println("-------------------------");
             #endif
         }
@@ -472,18 +481,20 @@ void notifyEvent()
         // Turn on red LED to let the user know they better get their arse into the meeting.
         ledOn(Red);
         eventIsNow = true;
-        delay(1000);
+        // delay(1000);
     }
     else if (NOTIFICATION_THRESHOLD_IMMINENT <= timeDiff && timeDiff < NOTIFICATION_THRESHOLD_NOW)
     {
         // Flash Yellow LED to let the user know that an event is starting within 1 minute.
-        flashLed(Yellow, 150);
-        flashLed(Yellow, 150);
+        // flashLed(Yellow, 150);
+        // flashLed(Yellow, 150);
+        ledOn(Yellow);
     }
     else if (NOTIFICATION_THRESHOLD_UPCOMING <= timeDiff && timeDiff < NOTIFICATION_THRESHOLD_IMMINENT)
     {
         // Flash green LED to let the user know that an event is starting within the next 5 minutes.
-        flashLed(Green, 500);
+        // flashLed(Green, 500);
+        ledOn(Green);
     }
     else
     {

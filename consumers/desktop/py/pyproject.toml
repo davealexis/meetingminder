@@ -1,0 +1,20 @@
+[project]
+name = ""
+version = ""
+description = ""
+authors = [
+    {name = "davealexis", email = "dalexis@gmail.com"},
+]
+dependencies = [
+    "httpx>=0.22.0",
+    "pywin32>=304",
+    "pendulum>=2.1.2",
+]
+requires-python = ">=3.10"
+license = {text = "MIT"}
+
+[tool.pdm]
+
+[build-system]
+requires = ["pdm-pep517>=0.12.0"]
+build-backend = "pdm.pep517.api"

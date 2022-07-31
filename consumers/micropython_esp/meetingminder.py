@@ -36,7 +36,7 @@ class MeetingMinder():
             "pipeline": [
                 {
                     "$addFields": {
-                        "secondsUntil": {
+                        "timeDiff": {
                             "$dateDiff": {
                                 "startDate": "$$NOW",
                                 "endDate": "$startTime",
@@ -46,7 +46,7 @@ class MeetingMinder():
                     }
                 },
                 {
-                    "$match": { "$expr": { "$gt": [ "$secondsUntil", 0 ] } }
+                    "$match": { "$expr": { "$gt": [ "$timeDiff", 0 ] } }
                 },
                 {
                     "$sort": { "startTime": 1 }

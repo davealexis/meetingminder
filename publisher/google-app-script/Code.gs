@@ -21,11 +21,11 @@
 
     ------------------------------------------------------------------------------------------
 */
-
 const mongoDataInsertApi = 'https://data.mongodb-api.com/app/data-pvtrm/endpoint/data/beta/action/insertMany'
 const mongoDataDeleteApi = 'https://data.mongodb-api.com/app/data-pvtrm/endpoint/data/beta/action/deleteMany'
-const eventSource = "Work Calendar"
 
+// Change this to the name of your calendar - e.g. "Work Calendar", "Home Calendar"
+const eventSource = "Work Calendar"
 
 // ------------------------------------------------------------------------------------------
 function getMeetings() {
@@ -61,12 +61,19 @@ function getMeetings() {
 
             eventList.push(
                 {
-                  "eventId": id,
-                  "source": eventSource,
-                  "title": e.getTitle(),
-                  "startTime": e.getStartTime().toISOString()
+                    "eventId": id,
+                    "source": eventSource,
+                    "title": e.getTitle(),
+                    "startTime": {
+                        "$date": {
+                            "$numberLong": (e.getStartTime().getTime()).toString()
+                        }
+                    },
+                    "startTimestamp": {
+                        "$numberLong": (e.getStartTime().getTime() / 1000).toString()
+                    }
                 }
-            ) 
+            )
         }
     })
 
@@ -92,7 +99,7 @@ function sendData(data) {
         })
     }
 
-    response = UrlFetchApp.fetch(mongoDataInsertApi, request)
+    UrlFetchApp.fetch(mongoDataInsertApi, request)
 }
 
 // ------------------------------------------------------------------------------------------
@@ -108,7 +115,7 @@ function deleteExistingEvents() {
             "dataSource": "ClusterOne",
             "database": "notifications",
             "collection": "events",
-            "filter": { "source": eventSource}
+            "filter": { "source": eventSource }
         })
     }
 

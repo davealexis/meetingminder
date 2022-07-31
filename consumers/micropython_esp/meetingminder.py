@@ -1,3 +1,4 @@
+from sys import platform
 import urequests as requests
 import uasyncio as asyncio
 import ujson as json
@@ -8,7 +9,7 @@ import secrets
 # that it starts at Jan 1, 2000 instead. We need to adjust timestamps we receive
 # from MongoDB to be compatible with the time module by deducting the MicroPython
 # epoch from the incoming timestamps.
-MPEpochOffset = 946702800
+MPEpochOffset = 0 if platform == 'rp2' else 946702800
 
 # This is the URL to the MongoDB Atlas Data API endpoint.
 MongoUrl = 'https://data.mongodb-api.com/app/data-pvtrm/endpoint/data/beta/action/'
@@ -21,7 +22,12 @@ class MeetingMinder():
     def __init__(self, ledFlasher):
         self.leds = ledFlasher
         self.events = []
+
+        self.leds.on(self.leds.Green)
+
         self.get_timezone_offset()
+
+        print("Epoch Offset:", MPEpochOffset)
 
         self.Query = '''{
             "dataSource": "ClusterOne",
@@ -33,45 +39,17 @@ class MeetingMinder():
                         "secondsUntil": {
                             "$dateDiff": {
                                 "startDate": "$$NOW",
-                                "endDate": {
-                                    "$convert": {
-                                        "input": "$startTime",
-                                        "to": "date"
-                                    }
-                                },
+                                "endDate": "$startTime",
                                 "unit": "second"
                             }
-                        },
-                        "startTime": {
-                            "$convert": {
-                                "input": "$startTime",
-                                "to": "date"
-                            }
-                        },
-                        "timestamp": {
-                            "$toLong": {
-                                "$convert": {
-                                    "input": "$startTime",
-                                    "to": "date"
-                                }
-                            }
                         }
                     }
                 },
                 {
-                    "$match": {
-                        "$expr": {
-                            "$gt": [
-                                "$secondsUntil",
-                                0
-                            ]
-                        }
-                    }
+                    "$match": { "$expr": { "$gt": [ "$secondsUntil", 0 ] } }
                 },
                 {
-                    "$sort": {
-                        "startTime": 1
-                    }
+                    "$sort": { "startTime": 1 }
                 },
                 {
                     "$limit": 5
@@ -81,26 +59,27 @@ class MeetingMinder():
                         "_id": 0,
                         "title": 1,
                         "startTime": 1,
-                        "startTicks": {
-                            "$toLong": "$startTime"
-                        }
+                        "startTicks": "$startTimestamp"
                     }
                 }
             ]
         }'''
-        
+
         self.QueryHeaders = {
             'Content-Type': 'application/json',
             'Access-Control-Request-Headers': '*',
             'api-key': secrets.mongo_api_key,
             'Connection': 'close'
         }
-    
+
     # .........................................................................
     @property
     def now(self):
-        return time.mktime(time.localtime()) + self.utc_offset_seconds
-    
+        if platform == 'rp2':
+            return time.mktime(time.localtime())
+        else:
+            return time.mktime(time.localtime()) + self.utc_offset_seconds
+
     # .........................................................................
     async def run(self):
         """
@@ -109,6 +88,7 @@ class MeetingMinder():
 
         asyncio.create_task(self.event_refresher_task())
         asyncio.create_task(self.event_scheduler_task())
+        asyncio.create_task(self.event_notifier_task())
 
     # .........................................................................
     async def event_refresher_task(self):
@@ -117,14 +97,17 @@ class MeetingMinder():
             This method will be run as a background task, so needs to run
             forever, sleeping for a bit between fetches.
         """
+
         while True:
-            events = await self.fetch_events()            
-            events_in_progress = [e for e in self.events if e['status'] == 'notifying']
-            
+            events = await self.fetch_events()
+            events_in_progress = [
+                e for e in self.events if e['status'] == 'notifying']
+
             if events_in_progress:
                 in_progress = events_in_progress[0]
-                events = events_in_progress + [e for e in events if e['time'] != in_progress['time']]
-                
+                events = events_in_progress + \
+                    [e for e in events if e['time'] != in_progress['time']]
+
             self.events = events
 
             # Wait for 1 minute before fetching events. We can make this longer if
@@ -137,6 +120,7 @@ class MeetingMinder():
             Ensure that the next event in our list is being handled by a
             notification agent (yet another background task).
         """
+
         while True:
             if not self.events:
                 # We have no meetings! Woohoo! We'll just sleep for a bit,
@@ -147,53 +131,51 @@ class MeetingMinder():
             # The list of events should be sorted by time, so the first one
             # is the next meeting.
             next_event = self.events[0]
-            
+
             if next_event['status'] == 'pending':
                 # Make sure our next meeting gets managed by our notification
                 # agent. We'll just fire up a new task to do that.
                 next_event['status'] = 'scheduled'
-                asyncio.create_task(self.announce(next_event))
+
+                print(f"Scheduled {next_event['title']}")
 
             await asyncio.sleep(10)
 
     # .........................................................................
-    async def announce(self, event):
+    async def event_notifier_task(self):
         """
             Wait for the configured time before the event starts, then start
             announcing the event.
-            Exit when the event is done.
         """
-        event_time = event["time"]
-        # event_title = event["title"]   <-- You can use this to display the title of the event
-        
-        time_until_event = event_time - self.now
+
+        print("Notifier started", time.localtime(self.now))
+        await self.leds.off()
 
         while True:
             """
-                We don't need to spin our wheels fast if the event is a relatively long
-                time in the future. We can go to sleep for a long time, and wake up to
-                check every now and then.
-                When the meeting is 5 minutes out, we can start the announcement cycle.
+                
             """
-            
-            # Make sure the event we're monitoring hasn't been cancelled or there is a
-            # newer event.
-            if event['time'] != self.events[0]['time']:
-                break                
-                            
-            wait_time = await self.wait_time(event_time)
 
-            if wait_time:
-                await asyncio.sleep(wait_time)
+            if not self.events:
+                # We have no meetings! Woohoo! We'll just sleep for a bit,
+                # then check again until we have some.
+                print("no events")
+                await asyncio.sleep(10)
                 continue
+
+            event = self.events[0]
+            event_time = event["time"]
+            # event_title = event["title"]   <-- You can use this to display the title of the event
+            wait_time = 1
 
             now = self.now
             time_until_event = event_time - now
-            
+
+            #print(event_time, time.localtime(event_time), now, time.localtime(now), time_until_event)
+
             if time_until_event <= -60:
                 await self.leds.off()
                 self.events.pop(0)
-                break
             elif time_until_event <= 10:          # 10 seconds before the event
                 event['status'] = 'notifying'
                 await self.leds.off()
@@ -205,43 +187,23 @@ class MeetingMinder():
                 await self.leds.on(self.leds.Green)
             elif time_until_event <= 300:         # 5 minutes before the event
                 await self.leds.on(self.leds.Green)
-                
-            await asyncio.sleep(1)
-    
-    # .........................................................................
-    async def wait_time(self, event_time):
-        """
-            Determine how long we can go to sleep for before we need to start
-            actively managing the LEDs. e.g. If the meeting is hours away,
-            we can sleep for an hour at a time until we get closer to the 
-            time of the event.
-        """
+            elif time_until_event > 330:
+                wait_time = 10
 
-        time_till_event = event_time - self.now
-
-        if time_till_event <= 300:       # 5 minutes
-            if time_till_event > 3600:   # 1 hour
-                # The meeting is more than an hour away. Sleep for an hour.
-                sleepTime = 3600
-            elif time_till_event > 600:  # 10 minutes
-                # The meeting is less than an hour away, but more than 10 minutes.
-                sleepTime = 600
-            elif time_till_event > 360:  # 6 minutes
-                sleepTime = 0
-            else:
-                sleepTime = 0
-
-            return sleepTime
+            await asyncio.sleep(wait_time)
 
     # .........................................................................
     async def fetch_events(self):
         try:
-            resp = requests.post(MongoUrl + "aggregate", data=self.Query, headers=self.QueryHeaders)
+            resp = requests.post(MongoUrl + "aggregate",
+                                 data=self.Query, headers=self.QueryHeaders)
         except:
             # Failed. No biggie. We'll pull the events on the next go-around.
             return self.events
 
         event_list = []
+
+        print("Fetching...")
 
         if resp.status_code == 200:
             if len(resp.text) > 0:
@@ -252,25 +214,50 @@ class MeetingMinder():
 
                     if len(events):
                         for event in events:
+                            if platform == 'rp2':
+                                event_time = int(
+                                    event["startTicks"]) + self.utc_offset_seconds
+                            elif platform == 'esp32':
+                                event_time = int(
+                                    event["startTicks"]) - MPEpochOffset + self.dst_offset_seconds
+                            else:
+                                event_time = int(
+                                    event["startTicks"]) - MPEpochOffset + self.dst_offset_seconds
+
                             event_list.append({
                                 "title": event["title"],
-                                "time": int(str(event["startTicks"])[0:-3]) - MPEpochOffset + self.dst_offset_seconds,
+                                "time": event_time,
                                 "status": "pending"
                             })
+
+                            print(event, time.gmtime(event_time))
                 elif doc.get("document"):
                     event = doc["document"]
+
+                    if platform == 'rp2':
+                        event_time = int(
+                            event["startTicks"]) - MPEpochOffset + self.utc_offset_seconds
+                    else:
+                        event_time = int(event["startTicks"]) - MPEpochOffset
+
                     event_list.append({
                         "title": event["title"],
-                        "time": int(event["startTicks"][0:-3]) - MPEpochOffset + self.dst_offset_seconds,
+                        "time": event_time,
                         "status": "pending"
                     })
         else:
+            await self.leds.on(self.leds.Red)
+            await asyncio.sleep(1)
+            await self.led.off()
             event_list = self.events
-            
+
+        print("Fetched", event_list)
+
         timeNow = self.now
-        
+        print(timeNow)
+
         return [e for e in event_list if e["time"] > timeNow]
-    
+
     # .........................................................................
     def get_timezone_offset(self):
         """
@@ -281,21 +268,22 @@ class MeetingMinder():
         try:
             worldTimeUrl = 'http://worldtimeapi.org/api/ip'
             resp = requests.get(worldTimeUrl)
-            
+
             if resp.status_code != 200:
                 # Failed to fetch the local timezone info. Default to Eastern time.
                 self.utc_offset_seconds = -4 * 3600
                 self.dst_offset_seconds = 0
                 return
-            
+
             tzInfo = json.loads(resp.text)
-            
+
             self.dst_offset_seconds = int(tzInfo['dst_offset'])
             hours, minutes = [int(t) for t in tzInfo['utc_offset'].split(':')]
-            self.utc_offset_seconds = (hours * 3600) + (minutes * 60 if hours > 0 else minutes * -60)
-            
-            # self.dst_offset_seconds *= -1
+            self.utc_offset_seconds = (
+                hours * 3600) + (minutes * 60 if hours > 0 else minutes * -60)
         except:
             # Failed to fetch the local timezone info. Default to Eastern time.
             self.utc_offset_seconds = -4 * 3600
             self.dst_offset_seconds = 0
+
+        print("TZ Info:", self.utc_offset_seconds, self.dst_offset_seconds)

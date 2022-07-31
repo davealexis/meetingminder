@@ -1,7 +1,7 @@
 from machine import Pin
 from utime import sleep
 from network import WLAN, STA_IF, AP_IF
-import lib.mrequests as requests
+import urequests as requests
 import ujson
 import secrets
 
@@ -42,12 +42,12 @@ def connect():
 # .............................................................................
 
 def getEvents():
-    req = '{ "dataSource": "ClusterOne", "database": "notifications", "collection": "events", "filter": {}, "projection": { "_id": 0, "title": 1, "startTime": 1 } }'
+    req = '{ "dataSource": "ClusterOne", "database": "notifications", "collection": "events", "filter": {}, "projection": { "_id": 0, "title": 1, "startTime": 1, "startTimestamp": 1 } }'
     headers = {
-        b'Content-Type': b'application/json',
-        b'Access-Control-Request-Headers': b'*',
-        b'api-key': b'Dgxmc35QxTH1aUL14LZEfsjR2Epb74XZfef7397XEPuCvMHiIT2baIroutVdJAg1',
-        b'Connection': b'close'
+        'Content-Type': 'application/json',
+        'Access-Control-Request-Headers': '*',
+        'api-key': secrets.mongo_api_key,
+        'Connection': 'close'
     }
 
     resp = requests.post(MongoUrl + "find", data=req, headers=headers)

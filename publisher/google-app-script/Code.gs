@@ -3,21 +3,21 @@
     MeetingMinder Publisher
     ------------------------------------------------------------------------------------------
 
-    This code integrates with a Google Calendar, and publises basic information about events to an
+    This code integrates with a Google Calendar, and publishes basic information about events to an
     intermediary database used by one or more MeetingMinder client devices or apps.
     
     Create a new file in this project called "secrets" (it will get the full name of "secrets.gs"), and
     add the following contents with the placeholders replaced with your actual values:
 
-        const apiKey = "<your MongoDB Atlas API key for Data API>"
+        const mongoDbApiKey = "<your MongoDB Atlas API key for Data API>"
 
     The MongoDB Data API URLs below are the same for any account/project/database, since those
     identifiers are specified in the body of Data API requests.
 
-    The "eventSource" constant identifies the calendar events for this particular calendar integration
+    The "eventSource" constant identifies the events for this particular calendar integration
     in the MongoDB data. This enables each calendar integration to manage its own data without affecting
     data for other calendars. It also enables extensions to the MeetingMinder clients that do things like
-    display rich information about upcoming events.
+    display rich information (including the source calendar name) about upcoming events.
 
     ------------------------------------------------------------------------------------------
 */

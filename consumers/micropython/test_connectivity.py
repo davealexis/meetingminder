@@ -42,7 +42,21 @@ def connect():
 # .............................................................................
 
 def getEvents():
-    req = '{ "dataSource": "ClusterOne", "database": "notifications", "collection": "events", "filter": {}, "projection": { "_id": 0, "title": 1, "startTime": 1, "startTimestamp": 1 } }'
+    req = '''
+    { 
+        "dataSource": "''' + secrets.mongo_cluster_name + '''",
+        "database": "notifications", 
+        "collection": "events", 
+        "filter": {}, 
+        "projection": { 
+            "_id": 0, 
+            "title": 1, 
+            "startTime": 1, 
+            "startTimestamp": 1 
+        } 
+    }
+    '''
+    
     headers = {
         'Content-Type': 'application/json',
         'Access-Control-Request-Headers': '*',

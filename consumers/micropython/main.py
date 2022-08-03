@@ -59,7 +59,7 @@ async def main(leds):
 
 # .............................................................................
 if __name__ == "__main__":
-    leds = LedFlasher(red_pin=4, green_pin=5, blue_pin=16)     # <-- ESP8266
+    leds = LedFlasher(red_pin=4, green_pin=5, blue_pin=16)     # <-- ESP8266 D1 mini
     # leds = LedFlasher(red_pin=23, green_pin=22, blue_pin=21)   # <-- ESP32
     # leds = LedFlasher(red_pin=18, green_pin=19, blue_pin=20)   # <-- RPi Pico W
 

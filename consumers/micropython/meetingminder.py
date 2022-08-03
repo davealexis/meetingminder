@@ -11,9 +11,6 @@ import secrets
 # epoch from the incoming timestamps.
 MPEpochOffset = 0 if platform == 'rp2' else 946702800
 
-# This is the URL to the MongoDB Atlas Data API endpoint.
-MongoUrl = 'https://data.mongodb-api.com/app/data-pvtrm/endpoint/data/beta/action/'
-
 
 # .............................................................................
 class MeetingMinder():
@@ -30,7 +27,7 @@ class MeetingMinder():
         print("Epoch Offset:", MPEpochOffset)
 
         self.Query = '''{
-            "dataSource": "ClusterOne",
+            "dataSource": "''' + secrets.mongo_cluster_name + '''",
             "database": "notifications",
             "collection": "events",
             "pipeline": [
@@ -195,7 +192,7 @@ class MeetingMinder():
     # .........................................................................
     async def fetch_events(self):
         try:
-            resp = requests.post(MongoUrl + "aggregate",
+            resp = requests.post(secrets.mongo_url + "aggregate",
                                  data=self.Query, headers=self.QueryHeaders)
         except:
             # Failed. No biggie. We'll pull the events on the next go-around.

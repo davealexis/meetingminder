@@ -6,10 +6,8 @@
     This code integrates with a Google Calendar, and publises basic information about events to an
     intermediary database used by one or more MeetingMinder client devices or apps.
     
-    Create a new file in this project called "secrets" (it will get the full name of "secrets.gs"), and
-    add the following contents with the placeholders replaced with your actual values:
-
-        const apiKey = "<your MongoDB Atlas API key for Data API>"
+    ** Make sure to replace the values of the mongoClusterName and mongoDbApiKey constants below
+       with the real values.
 
     The MongoDB Data API URLs below are the same for any account/project/database, since those
     identifiers are specified in the body of Data API requests.
@@ -23,9 +21,12 @@
 */
 const mongoDataInsertApi = 'https://data.mongodb-api.com/app/data-pvtrm/endpoint/data/beta/action/insertMany'
 const mongoDataDeleteApi = 'https://data.mongodb-api.com/app/data-pvtrm/endpoint/data/beta/action/deleteMany'
+const mongoClusterName = '<Your Atlas cluster name>'
+const mongoDbApiKey = "<Your MongoDB API Key>"
 
 // Change this to the name of your calendar - e.g. "Work Calendar", "Home Calendar"
 const eventSource = "Work Calendar"
+
 
 // ------------------------------------------------------------------------------------------
 function getMeetings() {
@@ -92,7 +93,7 @@ function sendData(data) {
             "api-key": mongoDbApiKey
         },
         "payload": JSON.stringify({
-            "dataSource": "ClusterOne",
+            "dataSource": mongoClusterName,
             "database": "notifications",
             "collection": "events",
             "documents": data
@@ -112,7 +113,7 @@ function deleteExistingEvents() {
             "api-key": mongoDbApiKey
         },
         "payload": JSON.stringify({
-            "dataSource": "ClusterOne",
+            "dataSource": mongoClusterName,
             "database": "notifications",
             "collection": "events",
             "filter": { "source": eventSource }

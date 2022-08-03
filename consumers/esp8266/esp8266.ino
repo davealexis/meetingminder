@@ -31,7 +31,7 @@ const int REFRESH_START_HOUR_UTC = 12; // 7amEST (12PM UTC)
 const int REFRESH_END_HOUR_UTC = 1;    // 8pmEST (1AM UTC)
 
 const char *MONGODB_QUERY PROGMEM = "{"
-                                    " \"dataSource\": \"ClusterOne\","
+                                    " \"dataSource\": \"CHANGE_ME\"," // <<< Change this to the appropriate MongoDB cluster name
                                     "   \"database\": \"notifications\","
                                     "   \"collection\": \"events\","
                                     "   \"pipeline\": ["
@@ -76,9 +76,9 @@ int mongoDbQueryLength = 0;
     // Uncomment the section of pins you want to use depending on the type of ESP8266 board you have.
 
     // // ESP01 module
-    // #define RED_LED_PIN 1
-    // #define GREEN_LED_PIN 2
-    // #define BLUE_LED_PIN 3
+    #define RED_LED_PIN 1
+    #define GREEN_LED_PIN 2
+    #define BLUE_LED_PIN 3
 
     // // Wemos D1 Mini
     // #define RED_LED_PIN 2
@@ -86,9 +86,9 @@ int mongoDbQueryLength = 0;
     // #define BLUE_LED_PIN 5
 
     // NodeMCU form factor board
-    #define RED_LED_PIN 13
-    #define GREEN_LED_PIN 12
-    #define BLUE_LED_PIN 14
+    // #define RED_LED_PIN 13
+    // #define GREEN_LED_PIN 12
+    // #define BLUE_LED_PIN 14
 #endif
 
 enum Colors
@@ -152,6 +152,8 @@ void notifyEvent();
 Task eventNotifier(2 * 1000, TASK_FOREVER, &notifyEvent);
 
 Scheduler taskRunner;
+
+
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 void setup()
 {

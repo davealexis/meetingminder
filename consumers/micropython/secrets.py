@@ -9,3 +9,7 @@
 wifi_network = '<wifi_network>'
 wifi_password = '<wifi_password>'
 mongo_api_key = '<mongo_api_key>'
+mongo_cluster_name = '<mongo_cluster_name>'
+
+# This is the URL to the MongoDB Atlas Data API endpoint.
+mongo_url = 'https://data.mongodb-api.com/app/data-pvtrm/endpoint/data/beta/action/'

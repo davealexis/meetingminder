@@ -34,8 +34,9 @@ type Event struct {
 //
 // The Config struct holds the MongoDB connection information.
 type Config struct {
-	MongoUrl    string `json:"mongoDataUrl"`
-	MongoAPIKey string `json:"mongoDataApiKey"`
+	MongoUrl     string `json:"mongoDataUrl"`
+	MongoAPIKey  string `json:"mongoDataApiKey"`
+	MongoCluster string `json:"mongoDataCluster"`
 }
 
 // This represents the full MongoDB Data API query to fetch the event data.
@@ -44,8 +45,8 @@ type Config struct {
 // The query itself is in the "pipeline" node. All of the nodes before "pipeline"
 // are query metadata reuqired by the MongoDB API. They specify the Atlas
 // cluster, database, and collection to query.
-const FetchEvents = `{
-		"dataSource": "ClusterOne",
+const QueryTemplate = `{
+		"dataSource": %s,
 		"database": "notifications",
 		"collection": "events",
 		"pipeline": [
@@ -194,7 +195,9 @@ func refreshEvents(done chan bool, eventUpdate chan Event, wg *sync.WaitGroup) {
 // fetchEvents does the actual work of calling MongoDB to fetch the event data.
 func fetchEvents() []Event {
 	client := &http.Client{}
-	req, err := http.NewRequest("POST", config.MongoUrl+"/aggregate", strings.NewReader(FetchEvents))
+	query := fmt.Sprintf(QueryTemplate, config.MongoCluster)
+
+	req, err := http.NewRequest("POST", config.MongoUrl+"/aggregate", strings.NewReader(query))
 	if err != nil {
 		log.Fatal(err)
 	}

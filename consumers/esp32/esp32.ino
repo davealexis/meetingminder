@@ -37,7 +37,7 @@ const int  REFRESH_START_HOUR_UTC = 12;               // 7amEST (12PM UTC)
 const int  REFRESH_END_HOUR_UTC = 1;                  // 8pmEST (1AM UTC)
 
 const char *MONGODB_QUERY PROGMEM = "{"
-                                    " \"dataSource\": \"ClusterOne\","
+                                    " \"dataSource\": \"CHANGE_ME\","      // <<< Change this to the appropriate MongoDB cluster name
                                     "   \"database\": \"notifications\","
                                     "   \"collection\": \"events\","
                                     "   \"pipeline\": ["

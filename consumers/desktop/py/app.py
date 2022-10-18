@@ -194,7 +194,7 @@ class MeetingMinder():
         headers = {
             'Content-Type': 'application/json',
             'Access-Control-Request-Headers': '*',
-            'api-key': 'Dgxmc35QxTH1aUL14LZEfsjR2Epb74XZfef7397XEPuCvMHiIT2baIroutVdJAg1',
+            'api-key': '<my API key>',
             'Connection': 'close'
         }
 

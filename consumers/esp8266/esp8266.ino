@@ -295,7 +295,7 @@ void fetchEvents()
     #endif
 
     // Make a HTTP request:
-    client.println("POST /app/data-pvtrm/endpoint/data/beta/action/aggregate HTTP/1.1");
+    client.println("POST /app/data-pvtrm/endpoint/data/v1/action/aggregate HTTP/1.1");
     client.println("Host: data.mongodb-api.com");
 
     // Headers

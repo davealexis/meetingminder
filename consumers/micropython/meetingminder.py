@@ -1,7 +1,7 @@
 from sys import platform
-import urequests as requests
-import uasyncio as asyncio
-import ujson as json
+import aiohttp
+import asyncio
+import json as json
 import time
 import secrets
 
@@ -20,11 +20,10 @@ class MeetingMinder():
         self.leds = ledFlasher
         self.events = []
 
-        self.leds.on(self.leds.Green)
-
+        # self.leds.on(self.leds.Green)
         self.get_timezone_offset()
 
-        print("Epoch Offset:", MPEpochOffset)
+        # print("Epoch Offset:", MPEpochOffset)
 
         self.Query = '''{
             "dataSource": "''' + secrets.mongo_cluster_name + '''",
@@ -134,7 +133,7 @@ class MeetingMinder():
                 # agent. We'll just fire up a new task to do that.
                 next_event['status'] = 'scheduled'
 
-                print(f"Scheduled {next_event['title']}")
+                # print(f"Scheduled {next_event['title']}")
 
             await asyncio.sleep(10)
 
@@ -145,8 +144,8 @@ class MeetingMinder():
             announcing the event.
         """
 
-        print("Notifier started", time.localtime(self.now))
-        await self.leds.off()
+        # print("Notifier started", time.localtime(self.now))
+        #await self.leds.off()
 
         while True:
             """
@@ -156,7 +155,6 @@ class MeetingMinder():
             if not self.events:
                 # We have no meetings! Woohoo! We'll just sleep for a bit,
                 # then check again until we have some.
-                print("no events")
                 await asyncio.sleep(10)
                 continue
 
@@ -168,9 +166,9 @@ class MeetingMinder():
             now = self.now
             time_until_event = event_time - now
 
-            #print(event_time, time.localtime(event_time), now, time.localtime(now), time_until_event)
+            # print(event_time, time.localtime(event_time), now, time.localtime(now), time_until_event)
 
-            if time_until_event <= -60:
+            if time_until_event <= -120:
                 await self.leds.off()
                 self.events.pop(0)
             elif time_until_event <= 10:          # 10 seconds before the event
@@ -191,67 +189,62 @@ class MeetingMinder():
 
     # .........................................................................
     async def fetch_events(self):
-        try:
-            resp = requests.post(secrets.mongo_url + "aggregate",
-                                 data=self.Query, headers=self.QueryHeaders)
-        except:
-            # Failed. No biggie. We'll pull the events on the next go-around.
-            return self.events
-
         event_list = []
+        
+        try:
+            async with aiohttp.ClientSession(version=aiohttp.HttpVersion11) as session:
+                async with session.post(secrets.mongo_url + "aggregate", data=self.Query, headers=self.QueryHeaders) as response:
+                    if response.status == 200:
+                        responseText = await response.text()
+                        
+                        if len(responseText) > 0:
+                            doc = json.loads(responseText)
 
-        print("Fetching...")
+                            if doc.get("documents"):
+                                events = doc["documents"]
 
-        if resp.status_code == 200:
-            if len(resp.text) > 0:
-                doc = json.loads(resp.text)
+                                if len(events):
+                                    for event in events:
+                                        if platform == 'rp2':
+                                            event_time = int(
+                                                event["startTicks"]) + self.utc_offset_seconds
+                                        elif platform == 'esp32':
+                                            event_time = int(
+                                                event["startTicks"]) - MPEpochOffset + self.dst_offset_seconds
+                                        else:
+                                            event_time = int(
+                                                event["startTicks"]) - MPEpochOffset + self.dst_offset_seconds
 
-                if doc.get("documents"):
-                    events = doc["documents"]
+                                        event_list.append({
+                                            "title": event["title"],
+                                            "time": event_time,
+                                            "status": "pending"
+                                        })
+                            elif doc.get("document"):
+                                event = doc["document"]
 
-                    if len(events):
-                        for event in events:
-                            if platform == 'rp2':
-                                event_time = int(
-                                    event["startTicks"]) + self.utc_offset_seconds
-                            elif platform == 'esp32':
-                                event_time = int(
-                                    event["startTicks"]) - MPEpochOffset + self.dst_offset_seconds
-                            else:
-                                event_time = int(
-                                    event["startTicks"]) - MPEpochOffset + self.dst_offset_seconds
+                                if platform == 'rp2':
+                                    event_time = int(
+                                        event["startTicks"]) - MPEpochOffset + self.utc_offset_seconds
+                                else:
+                                    event_time = int(event["startTicks"]) - MPEpochOffset
 
-                            event_list.append({
-                                "title": event["title"],
-                                "time": event_time,
-                                "status": "pending"
-                            })
-
-                            print(event, time.gmtime(event_time))
-                elif doc.get("document"):
-                    event = doc["document"]
-
-                    if platform == 'rp2':
-                        event_time = int(
-                            event["startTicks"]) - MPEpochOffset + self.utc_offset_seconds
+                                event_list.append({
+                                    "title": event["title"],
+                                    "time": event_time,
+                                    "status": "pending"
+                                })
                     else:
-                        event_time = int(event["startTicks"]) - MPEpochOffset
-
-                    event_list.append({
-                        "title": event["title"],
-                        "time": event_time,
-                        "status": "pending"
-                    })
-        else:
-            await self.leds.on(self.leds.Red)
-            await asyncio.sleep(1)
-            await self.led.off()
-            event_list = self.events
+                        event_list = self.events
+        except Exception as e:
+            # Failed. No biggie. We'll pull the events on the next go-around.
+            # print("Failed to fetch. ", e)
+            return self.events
 
         print("Fetched", event_list)
 
         timeNow = self.now
-        print(timeNow)
+        # print(timeNow)
 
         return [e for e in event_list if e["time"] > timeNow]
 
@@ -283,4 +276,4 @@ class MeetingMinder():
             self.utc_offset_seconds = -4 * 3600
             self.dst_offset_seconds = 0
 
-        print("TZ Info:", self.utc_offset_seconds, self.dst_offset_seconds)
+        # print("TZ Info:", self.utc_offset_seconds / 60 / 60, self.dst_offset_seconds)

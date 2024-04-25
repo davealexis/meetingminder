@@ -1,0 +1,6 @@
+**/.venv
+*.exe
+.pdm.toml
+__pypackages__
+.vscode/
+**/secrets.*

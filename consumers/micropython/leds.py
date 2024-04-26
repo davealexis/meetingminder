@@ -39,25 +39,16 @@ class LedFlasher():
         time.sleep(duration)
 
     # .........................................................................
-    async def on(self, color):
-        await self.off()
-
-        for led in color:
-            led.value(self.LedOn)
-
-    # .........................................................................
-    def _on(self, color):
+    def on(self, color):
         self._off()
 
         for led in color:
             led.value(self.LedOn)
+            time.sleep_ms(1)
 
     # .............................................................................
     async def off(self):
-        self._off()
-
-    # .............................................................................
-    def _off(self):
         self.redLed.value(self.LedOff)
         self.greenLed.value(self.LedOff)
         self.blueLed.value(self.LedOff)
+        time.sleep_ms(1)

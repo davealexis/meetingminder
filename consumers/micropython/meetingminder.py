@@ -169,19 +169,19 @@ class MeetingMinder():
             # print(event_time, time.localtime(event_time), now, time.localtime(now), time_until_event)
 
             if time_until_event <= -120:
-                await self.leds.off()
+                self.leds.off()
                 self.events.pop(0)
             elif time_until_event <= 10:          # 10 seconds before the event
                 event['status'] = 'notifying'
-                await self.leds.off()
-                await self.leds.on(self.leds.Red)
+                self.leds.off()
+                self.leds.on(self.leds.Red)
             elif time_until_event <= 60:          # 1 minute before the event
                 event['status'] = 'notifying'
-                await self.leds.on(self.leds.Yellow)
+                self.leds.on(self.leds.Yellow)
             elif time_until_event <= 180:         # 3 minutes before the event
-                await self.leds.on(self.leds.Green)
+                self.leds.on(self.leds.Green)
             elif time_until_event <= 300:         # 5 minutes before the event
-                await self.leds.on(self.leds.Green)
+                self.leds.on(self.leds.Green)
             elif time_until_event > 330:
                 wait_time = 10
 
@@ -241,7 +241,7 @@ class MeetingMinder():
             # print("Failed to fetch. ", e)
             return self.events
 
-        print("Fetched", event_list)
+        # print("Fetched", event_list)
 
         timeNow = self.now
         # print(timeNow)

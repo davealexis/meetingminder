@@ -13,7 +13,7 @@ if sys.platform != 'rp2':
 
 # .............................................................................
 def connect(leds):
-    leds._on(leds.Blue)
+    leds.on(leds.Blue)
 
     # Ensure that the Access Point mode is disabled
     wifi = WLAN(AP_IF)
@@ -34,9 +34,9 @@ def connect(leds):
         leds.flash(leds.Blue, 0.5)
 
     # We're connected to WiFi! Let's go!
-    # leds.flash(leds.Green, 0.1)
-    # leds.flash(leds.Green, 0.1)
-    # leds.flash(leds.Green, 0.1)
+    #leds.flash(leds.Blue, 0.1)
+    #leds.flash(leds.Blue, 0.1)
+    #leds.flash(leds.Blue, 0.1)
 
 
 # .............................................................................
@@ -89,8 +89,8 @@ async def main(leds):
 
 # .............................................................................
 if __name__ == "__main__":
-    # leds = LedFlasher(7)                                       # <-- NeoPixel on D1 Mini
-    leds = LedFlasher(red_pin=4, green_pin=5, blue_pin=16)       # <-- ESP8266 D1 Mini
+    leds = LedFlasher(28)                                         # <-- NeoPixel on D1 Mini
+    # leds = LedFlasher(red_pin=4, green_pin=5, blue_pin=16)     # <-- ESP8266 D1 Mini
     # leds = LedFlasher(red_pin=23, green_pin=22, blue_pin=21)   # <-- ESP32
     # leds = LedFlasher(red_pin=18, green_pin=19, blue_pin=20)   # <-- RPi Pico W
 
@@ -103,14 +103,11 @@ if __name__ == "__main__":
 
         while True:
             try:
-                leds.flash(leds.Blue, 0.2)
+                leds.flash(leds.Yellow, 0.2)
                 ntptime.settime()
                 break
             except:
                 ...
-
-    # print("Starting up")
-    leds._on(leds.Green)
 
     try:
         asyncio.run(main(leds))

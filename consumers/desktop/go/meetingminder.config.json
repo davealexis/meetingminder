@@ -1,0 +1,13 @@
+{
+    "mongoDataUrl": "https://data.mongodb-api.com/app/<your Atlas app ID>/endpoint/data/v1/action",
+    "mongoDataApiKey": "<your API key>",
+    "mongoDataCluster": "<your cluster name>",
+    "notifiers": [
+        "usb"
+    ],
+    "usbNotifiers": {
+        "239A:8111": "Adafruit Qt Py S2",
+        "303A:4001": "Adafruit Qt Py S2",
+        "239A:80F0": "Adafruit Neo Trinkey"
+    }
+}

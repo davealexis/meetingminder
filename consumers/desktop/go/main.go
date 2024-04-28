@@ -1,43 +1,28 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
+	"meetingminder/notifiers"
+	"meetingminder/types"
 	"net/http"
 	"os"
 	"os/signal"
+	"path"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
-
-	"github.com/go-ole/go-ole"
-	"github.com/go-ole/go-ole/oleutil"
 )
-
-// The Event struct holds the basic information about an event.
-// All we neeed is the title and the start time. This initial version of the
-// application only really needs the start time. But it would be cool to
-// Add an OLED or e-ink display so we can see the day's itinerary.
-type Event struct {
-	Title                 string    `json:"title"`
-	Start                 time.Time `json:"startTime"`
-	NotificationCountdown int
-}
 
 // We're using MongoDB Atlas, which enables simple interation using
 // just standard REST APIs - no fancy, bloated client libraries.
 // This is perfectly suited for IoT applications, where we're very concerned
 // with efficiently running on resource-constrained environments.
 //
-// The Config struct holds the MongoDB connection information.
-type Config struct {
-	MongoUrl     string `json:"mongoDataUrl"`
-	MongoAPIKey  string `json:"mongoDataApiKey"`
-	MongoCluster string `json:"mongoDataCluster"`
-}
 
 // This represents the full MongoDB Data API query to fetch the event data.
 // A "projection" step is used since we want to not have the ID fields
@@ -46,7 +31,7 @@ type Config struct {
 // are query metadata reuqired by the MongoDB API. They specify the Atlas
 // cluster, database, and collection to query.
 const QueryTemplate = `{
-		"dataSource": %s,
+		"dataSource": "%s",
 		"database": "notifications",
 		"collection": "events",
 		"pipeline": [
@@ -85,7 +70,8 @@ const (
 	RefeshEndHour   = 22
 )
 
-var config Config
+var config types.Config
+var eventCache = []types.Event{}
 
 // ------------------------------------------------------------------------------------------------
 func main() {
@@ -97,22 +83,25 @@ func main() {
 	// 	- one goroutine that polls the database for updated event data.
 	// 	- one goroutine that schedules the LED shenanigans.
 	// 	- one goroutine that handles the LED blinky-blinky.
-	done := make(chan bool)
+	ctx, done := context.WithCancel(context.Background())
+	ctx = context.WithValue(ctx, "config", config)
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
-	eventUpdate := make(chan Event, 1)
+	eventUpdate := make(chan types.Event, 5)
 
 	// Watch for OS signals - e.g. Ctrl-C, SIGTERM, etc.
 	// When a signal is received, we'll tell the goroutines to stop.
 	go watchForOsSignal(done)
 
+	startNotifiers(ctx, eventUpdate)
+
 	// Poll the database for updated event data.
 	// Data about the next upcoming event is sent to the LED goroutine.
-	go refreshEvents(done, eventUpdate, wg)
+	go refreshEvents(ctx, wg)
 
 	// Schedule the LED shenanigans.
-	// This goroutine will turn the LEDs on and off based on the next upcoming event.
-	go notify(eventUpdate, done)
+	// This goroutine will manage when notifiers should be triggered.
+	go scheduleEvents(ctx, eventUpdate)
 
 	log.Println("Notification service started")
 	log.Println("Press Ctrl+C to exit")
@@ -121,24 +110,36 @@ func main() {
 }
 
 // ------------------------------------------------------------------------------------------------
+func startNotifiers(ctx context.Context, nextEventChannel chan types.Event) {
+	for _, n := range config.Notifiers {
+		log.Printf("Starting notifier: %s", n)
+
+		notifiers.Start(ctx, n, nextEventChannel)
+	}
+}
+
+// ------------------------------------------------------------------------------------------------
 
 // watchForOsSignal watches for OS signals and sends them to the done channel to tell
 // other goroutines to stop.
-func watchForOsSignal(done chan bool) {
+func watchForOsSignal(done context.CancelFunc) {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
 	sig := <-sigs
-	log.Println()
+	log.Println("Got Crtl-C or SIGTERM")
 	log.Println(sig)
-	done <- true
+	done()
 }
 
 // ------------------------------------------------------------------------------------------------
 
 // loagConfig loads the configuration from the config.json file.
 func loadConfig() {
-	file, err := ioutil.ReadFile("config.json")
+	appPath, _ := os.Executable()
+	configPath := path.Join(path.Dir(strings.Replace(appPath, "\\", "/", -1)), "meetingminder.config.json")
+
+	file, err := os.ReadFile(configPath)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -155,19 +156,19 @@ func loadConfig() {
 // Once the list of events is retrieved, they are scanned to determine which is the next upcoming
 // event. It will typically be the first event in the list, but the list may contain older events
 // that happened since the last time the MongoDB collection was updated.
-func refreshEvents(done chan bool, eventUpdate chan Event, wg *sync.WaitGroup) {
+func refreshEvents(ctx context.Context, wg *sync.WaitGroup) {
 	log.Println("Refresh events task started")
-	ticker := time.NewTicker(10 * time.Minute)
+	ticker := time.NewTicker(2 * time.Minute)
 
-	events := fetchEvents()
-	nextEvent := getNextEvent(events)
-	eventUpdate <- nextEvent
+	eventCache = fetchEvents()
 
-	log.Println("Next event:", nextEvent.Title, nextEvent.Start)
+	for e, event := range eventCache {
+		eventCache[e].Start = event.Start.Local()
+	}
 
 	for {
 		select {
-		case <-done:
+		case <-ctx.Done():
 			log.Println("Stopping event refresh process")
 			ticker.Stop()
 			wg.Done()
@@ -179,12 +180,7 @@ func refreshEvents(done chan bool, eventUpdate chan Event, wg *sync.WaitGroup) {
 			// first event of the next day.
 			if time.Now().Hour() > RefeshStartHour && time.Now().Hour() < RefeshEndHour {
 				log.Println("Refreshing events")
-				events := fetchEvents()
-
-				if len(events) > 0 {
-					nextEvent := getNextEvent(events)
-					eventUpdate <- nextEvent
-				}
+				eventCache = fetchEvents()
 			}
 		}
 	}
@@ -193,7 +189,7 @@ func refreshEvents(done chan bool, eventUpdate chan Event, wg *sync.WaitGroup) {
 // ------------------------------------------------------------------------------------------------
 
 // fetchEvents does the actual work of calling MongoDB to fetch the event data.
-func fetchEvents() []Event {
+func fetchEvents() []types.Event {
 	client := &http.Client{}
 	query := fmt.Sprintf(QueryTemplate, config.MongoCluster)
 
@@ -205,6 +201,7 @@ func fetchEvents() []Event {
 	req.Header.Add("Content-Type", "application/json")
 	req.Header.Add("Access-Control-Request-Header", "*")
 	req.Header.Add("api-key", config.MongoAPIKey)
+	req.Header.Add("Connection", "close")
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -213,13 +210,13 @@ func fetchEvents() []Event {
 
 	defer resp.Body.Close()
 
-	bodyBytes, err := ioutil.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	type MongoResponse struct {
-		Documents []Event `json:"documents"`
+		Documents []types.Event `json:"documents"`
 	}
 
 	var response MongoResponse
@@ -234,14 +231,14 @@ func fetchEvents() []Event {
 // ------------------------------------------------------------------------------------------------
 
 // getNextEvent scans the list of events and returns the next upcoming event.
-func getNextEvent(events []Event) Event {
-	var nextEvent Event
+func getNextEvent(events []types.Event) types.Event {
+	var nextEvent types.Event
 
 	for _, event := range events {
 		if nextEvent.Start.IsZero() || event.Start.Before(nextEvent.Start) {
 			if event.Start.After(time.Now()) {
 				nextEvent = event
-				nextEvent.NotificationCountdown = 999
+				nextEvent.Tier = types.Waiting
 			}
 		}
 	}
@@ -251,99 +248,69 @@ func getNextEvent(events []Event) Event {
 
 // ------------------------------------------------------------------------------------------------
 
-// notify orchestrates the LED blinking once the time of the next event reaches within the
+// scheduleEvents orchestrates the LED blinking once the time of the next event reaches within the
 // 5-minute window. Once that happens, a message is sent to the goroutine that handles the LED
 // blinking.
 // It also listens for notifications from the database poller about the next upcoming event.
-func notify(nextEventChannel chan Event, done chan bool) {
-	// Listen for updates to next event channel
-	// Set up ticker to wait for next event
-	log.Println("Notifier started")
-	ticker := time.NewTicker(5 * time.Second)
+func scheduleEvents(ctx context.Context, notificationChannel chan types.Event) {
+	ticker := time.NewTicker(1 * time.Second)
 
-	var (
-		nextEvent Event
-	)
+	var nextEvent types.Event
 
 	for {
 		select {
 		case <-ticker.C:
+			if nextEvent.Start.IsZero() && len(eventCache) > 0 {
+				nextEvent = getNextEvent(eventCache)
+			}
+
 			if !nextEvent.Start.IsZero() {
-				if time.Now().After(nextEvent.Start.Add(5 * time.Minute)) {
-					log.Println("Clearing next event")
-					nextEvent = Event{}
-				} else {
-					nextEvent.NotificationCountdown = showNotification(nextEvent)
+				notificationStartThreshold := nextEvent.Start.Add((notifiers.ThresholdUpcoming*-1 - 5) * time.Second)
+
+				if time.Now().After(notificationStartThreshold) {
+					if !manageNotification(nextEvent, notificationChannel) {
+						nextEvent = types.Event{}
+					}
 				}
 			}
-		case e := <-nextEventChannel:
-			nextEvent = e
-		case <-done:
+		case <-ctx.Done():
 			log.Println("Stopping Notifier process")
 			ticker.Stop()
 			return
 		}
 	}
-
 }
 
 // ------------------------------------------------------------------------------------------------
 
-// showNotification manages blinking the LED for various intervals and colors depending on
+// manageNotification manages blinking the LED for various intervals and colors depending on
 // if the event start time is within 5 minutes, within 1 minute, and within 10 seconds.
-func showNotification(event Event) int {
-	nextNotification := 999
-
+func manageNotification(event types.Event, notificationChan chan types.Event) bool {
 	if time.Now().After(event.Start.Add(-10 * time.Second)) {
-		if event.NotificationCountdown == 1 {
-			say(fmt.Sprintf("The %s meeting is starting. Get your arse in gear, Dave", event.Title), 0)
+		if time.Now().After(event.Start.Add(notifiers.ThresholdStop * time.Second)) {
+			event.Tier = types.Stop
+			notificationChan <- event
+
+			return false
 		}
 
-		nextNotification = 0
-	} else {
-		timeRemaining := time.Until(event.Start)
+		event.Tier = types.Starting
+		notificationChan <- event
 
-		if timeRemaining < 1*time.Minute {
-			if event.NotificationCountdown == 2 {
-				say(fmt.Sprintf("%d seconds until event", int(timeRemaining.Seconds())), 0)
-			}
-
-			nextNotification = 1
-		} else if timeRemaining < 5*time.Minute {
-			if event.NotificationCountdown >= 5 {
-				say(fmt.Sprintf("%d minutes until event", int(timeRemaining.Minutes())), 0)
-			}
-
-			nextNotification = 2
-		}
+		return true
 	}
 
-	return nextNotification
-}
+	timeRemaining := time.Until(event.Start)
 
-// ------------------------------------------------------------------------------------------------
-func say(text string, rate int) {
-	ole.CoInitialize(0)
-	defer ole.CoUninitialize()
-
-	unknown, err := oleutil.CreateObject("SAPI.SpVoice")
-	if err != nil {
-		log.Fatal(err)
+	if timeRemaining <= notifiers.ThresholdStarting*time.Second {
+		event.Tier = types.Starting
+	} else if timeRemaining <= notifiers.ThresholdAlmostThere*time.Second {
+		event.Tier = types.AlmostThere
+	} else if timeRemaining <= notifiers.ThresholdUpcoming*time.Second {
+		event.Tier = types.Pending
 	}
 
-	sapi, err := unknown.QueryInterface(ole.IID_IDispatch)
-	defer sapi.Release()
-	if err != nil {
-		log.Fatal(err)
-	}
+	notificationChan <- event
 
-	_, err = oleutil.PutProperty(sapi, "Rate", rate)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	_, err = oleutil.CallMethod(sapi, "Speak", text)
-	if err != nil {
-		log.Fatal(err)
-	}
+	return true
 }

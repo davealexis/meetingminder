@@ -145,13 +145,9 @@ class MeetingMinder():
         """
 
         # print("Notifier started", time.localtime(self.now))
-        #await self.leds.off()
+        self.leds.off()
 
         while True:
-            """
-                
-            """
-
             if not self.events:
                 # We have no meetings! Woohoo! We'll just sleep for a bit,
                 # then check again until we have some.

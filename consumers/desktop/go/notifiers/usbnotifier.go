@@ -24,7 +24,6 @@ func (n USBNotifier) Run(ctx context.Context, nextEventChannel chan types.Event)
 
 	go n.triggerDiscovery()
 
-	// n.notify(nextEventChannel, done)
 	deviceChan := make(chan bool, 2)
 
 	go func() {
@@ -54,8 +53,6 @@ func (n *USBNotifier) notify(_ string, _ time.Time, notificationTier types.Notif
 		if !n.Discovering {
 			go n.triggerDiscovery()
 		}
-
-		log.Println("No USB device specified. Skippng notification")
 
 		return
 	}

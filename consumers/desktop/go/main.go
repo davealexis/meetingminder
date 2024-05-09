@@ -1,7 +1,10 @@
 package main
 
+// Build with go build -ldflags -H=windowsgui
+
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,7 +19,12 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/getlantern/systray"
 )
+
+//go:embed assets
+var assets embed.FS
 
 // We're using MongoDB Atlas, which enables simple interation using
 // just standard REST APIs - no fancy, bloated client libraries.
@@ -75,7 +83,59 @@ var eventCache = []types.Event{}
 
 // ------------------------------------------------------------------------------------------------
 func main() {
+	systray.Run(onReady, onExit)
+}
+
+// ------------------------------------------------------------------------------------------------
+func onReady() {
 	loadConfig()
+	ctx, done := context.WithCancel(context.Background())
+	ctx = context.WithValue(ctx, "config", config)
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+
+	eventUpdate := make(chan types.Event, 5)
+
+	systray.SetIcon(getIcon("assets/clock.ico"))
+	activeMeeting := systray.AddMenuItem("No meeting", "No meeting")
+	activeMeeting.SetIcon(getIcon("assets/sleep.ico"))
+	systray.AddSeparator()
+	mQuit := systray.AddMenuItem("Quit", "Quits this app")
+
+	go func() {
+		for {
+			select {
+			case event := <-eventUpdate:
+				if event.Title == "" {
+					event.Tier = types.Waiting
+				}
+
+				switch event.Tier {
+				case types.Stop, types.Waiting:
+					activeMeeting.SetTitle("No meeting")
+					activeMeeting.SetIcon(getIcon("assets/sleep.ico"))
+					systray.SetIcon(getIcon("assets/clock.ico"))
+				case types.Starting:
+					activeMeeting.SetTitle("Meeting: " + event.Title)
+					activeMeeting.SetIcon(getIcon("assets/red.ico"))
+					systray.SetIcon(getIcon("assets/red.ico"))
+				case types.AlmostThere:
+					activeMeeting.SetTitle("Meeting: " + event.Title)
+					activeMeeting.SetIcon(getIcon("assets/yellow.ico"))
+					systray.SetIcon(getIcon("assets/yellow.ico"))
+				case types.Pending:
+					activeMeeting.SetTitle("Meeting: " + event.Title)
+					activeMeeting.SetIcon(getIcon("assets/green.ico"))
+					systray.SetIcon(getIcon("assets/green.ico"))
+				}
+			case <-mQuit.ClickedCh:
+				done()
+				wg.Wait()
+				systray.Quit()
+				return
+			}
+		}
+	}()
 
 	// Now let's set some goroutine orchestration.
 	// We're going to have
@@ -83,11 +143,6 @@ func main() {
 	// 	- one goroutine that polls the database for updated event data.
 	// 	- one goroutine that schedules the LED shenanigans.
 	// 	- one goroutine that handles the LED blinky-blinky.
-	ctx, done := context.WithCancel(context.Background())
-	ctx = context.WithValue(ctx, "config", config)
-	wg := &sync.WaitGroup{}
-	wg.Add(1)
-	eventUpdate := make(chan types.Event, 5)
 
 	// Watch for OS signals - e.g. Ctrl-C, SIGTERM, etc.
 	// When a signal is received, we'll tell the goroutines to stop.
@@ -107,6 +162,20 @@ func main() {
 	log.Println("Press Ctrl+C to exit")
 	wg.Wait()
 	log.Println("Exiting")
+}
+
+// ------------------------------------------------------------------------------------------------
+func onExit() {
+	// Cleaning stuff here.
+}
+
+// ------------------------------------------------------------------------------------------------
+func getIcon(s string) []byte {
+	b, err := assets.ReadFile(s)
+	if err != nil {
+		fmt.Print(err)
+	}
+	return b
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -179,7 +248,6 @@ func refreshEvents(ctx context.Context, wg *sync.WaitGroup) {
 			// calendar is not likely to change, while still making sure we don't miss the
 			// first event of the next day.
 			if time.Now().Hour() > RefeshStartHour && time.Now().Hour() < RefeshEndHour {
-				log.Println("Refreshing events")
 				eventCache = fetchEvents()
 			}
 		}

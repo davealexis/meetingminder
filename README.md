@@ -10,7 +10,7 @@ The basic design is to have bright, annoying LEDs notify me when meetings are im
 2. Data Store: A MongoDB Atlas collection that holds the list of events. Since the set of events is always going to be very small, we'll fit nicely within the Atlas free tier.
 3. Consumer: The "client", which reads the meeting data from MongoDB and flashes RGB LEDs to indicate when a meeting was about to happen.
 
-I created a few different versions of MeetingMinder, because.. why not? 
+I created a few different versions of MeetingMinder client, because.. why not? 
 
 The first version is written in **Go and runs on a Raspberry Pi Zero W.** Go's concurrency features were ideal for this application, since there can be different concurrent tasks (each in its own Goroutine) to manage specific aspects of the functionality - periodically fetching updated meeting list, determining when the next meeting is and waiting till it's time to notify the user, and the user notifications themselves.
 

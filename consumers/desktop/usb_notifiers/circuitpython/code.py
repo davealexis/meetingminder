@@ -55,17 +55,7 @@ while True:
 
     if color == "red":
         ledsOn = True
-
-        for value in range(0, maxBrightness, 5):
-            led.fill((value, 0, 0))
-
-        time.sleep(2)
-
-        for value in range(maxBrightness, 0, -1):
-            led.fill((value, 0, 0))
-
-        led.fill((0, 0, 0))
-        time.sleep(.5)
+        led.fill((maxBrightness, 0, 0))
     elif color == "green":
         ledsOn = True
         led.fill((0, maxBrightness, 0))

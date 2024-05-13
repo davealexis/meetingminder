@@ -75,7 +75,7 @@ const QueryTemplate = `{
 
 const (
 	RefeshStartHour = 6
-	RefeshEndHour   = 22
+	RefeshEndHour   = 20
 )
 
 var config types.Config
@@ -90,51 +90,26 @@ func main() {
 func onReady() {
 	loadConfig()
 	ctx, done := context.WithCancel(context.Background())
-	ctx = context.WithValue(ctx, "config", config)
+	ctx = context.WithValue(ctx, "config", &config)
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 
 	eventUpdate := make(chan types.Event, 5)
 
-	systray.SetIcon(getIcon("assets/clock.ico"))
-	activeMeeting := systray.AddMenuItem("No meeting", "No meeting")
-	activeMeeting.SetIcon(getIcon("assets/sleep.ico"))
-	systray.AddSeparator()
+	trayNotifier := &notifiers.SystrayNotifier{Assets: assets}
+	trayNotifier.Init(ctx)
+	notifiers.RegisterInstance("systray", trayNotifier)
+
+	notifiers.RegisterFromConfig(ctx, &config)
+	notifiers.Run(ctx, eventUpdate)
+
 	mQuit := systray.AddMenuItem("Quit", "Quits this app")
 
 	go func() {
-		for {
-			select {
-			case event := <-eventUpdate:
-				if event.Title == "" {
-					event.Tier = types.Waiting
-				}
-
-				switch event.Tier {
-				case types.Stop, types.Waiting:
-					activeMeeting.SetTitle("No meeting")
-					activeMeeting.SetIcon(getIcon("assets/sleep.ico"))
-					systray.SetIcon(getIcon("assets/clock.ico"))
-				case types.Starting:
-					activeMeeting.SetTitle("Meeting: " + event.Title)
-					activeMeeting.SetIcon(getIcon("assets/red.ico"))
-					systray.SetIcon(getIcon("assets/red.ico"))
-				case types.AlmostThere:
-					activeMeeting.SetTitle("Meeting: " + event.Title)
-					activeMeeting.SetIcon(getIcon("assets/yellow.ico"))
-					systray.SetIcon(getIcon("assets/yellow.ico"))
-				case types.Pending:
-					activeMeeting.SetTitle("Meeting: " + event.Title)
-					activeMeeting.SetIcon(getIcon("assets/green.ico"))
-					systray.SetIcon(getIcon("assets/green.ico"))
-				}
-			case <-mQuit.ClickedCh:
-				done()
-				wg.Wait()
-				systray.Quit()
-				return
-			}
-		}
+		<-mQuit.ClickedCh
+		done()
+		wg.Wait()
+		systray.Quit()
 	}()
 
 	// Now let's set some goroutine orchestration.
@@ -170,21 +145,8 @@ func onExit() {
 }
 
 // ------------------------------------------------------------------------------------------------
-func getIcon(s string) []byte {
-	b, err := assets.ReadFile(s)
-	if err != nil {
-		fmt.Print(err)
-	}
-	return b
-}
-
-// ------------------------------------------------------------------------------------------------
 func startNotifiers(ctx context.Context, nextEventChannel chan types.Event) {
-	for _, n := range config.Notifiers {
-		log.Printf("Starting notifier: %s", n)
-
-		notifiers.Start(ctx, n, nextEventChannel)
-	}
+	notifiers.Run(ctx, nextEventChannel)
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -227,7 +189,10 @@ func loadConfig() {
 // that happened since the last time the MongoDB collection was updated.
 func refreshEvents(ctx context.Context, wg *sync.WaitGroup) {
 	log.Println("Refresh events task started")
+
 	ticker := time.NewTicker(2 * time.Minute)
+
+	refreshIsActive := true
 
 	eventCache = fetchEvents()
 
@@ -248,7 +213,19 @@ func refreshEvents(ctx context.Context, wg *sync.WaitGroup) {
 			// calendar is not likely to change, while still making sure we don't miss the
 			// first event of the next day.
 			if time.Now().Hour() > RefeshStartHour && time.Now().Hour() < RefeshEndHour {
+				if !refreshIsActive {
+					ticker = time.NewTicker(2 * time.Minute)
+					refreshIsActive = true
+				}
+
 				eventCache = fetchEvents()
+			} else {
+				// It's after hours. Refresh less often.
+				if refreshIsActive {
+					eventCache = []types.Event{}
+					ticker = time.NewTicker(30 * time.Minute)
+					refreshIsActive = false
+				}
 			}
 		}
 	}

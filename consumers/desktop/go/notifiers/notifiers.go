@@ -2,11 +2,14 @@ package notifiers
 
 import (
 	"context"
+	"log"
 	"meetingminder/types"
+	"time"
 )
 
 type Notifier interface {
-	Run(ctx context.Context, nextEventChannel chan types.Event) chan bool
+	Init(ctx context.Context)
+	Notify(eventTitle string, eventTime time.Time, notificationTier types.NotificationTier)
 }
 
 const (
@@ -16,28 +19,46 @@ const (
 	ThresholdStop        = 120
 )
 
+var notifiers = make(map[string]Notifier)
+
 // ------------------------------------------------------------------------------------------------
-func Start(ctx context.Context, notifierType string, nextEventChannel chan types.Event) error {
+func RegisterInstance(notifierType string, notifier Notifier) {
+	notifiers[notifierType] = notifier
+}
 
-	var notifier Notifier
+// ------------------------------------------------------------------------------------------------
+func RegisterFromConfig(ctx context.Context, config *types.Config) {
 
-	switch notifierType {
-	case "voice":
-		return nil
+	for _, notifierType := range config.Notifiers {
+		switch notifierType {
+		case "voice":
+			// Not supported yet
 
-	case "usb":
-		notifier = USBNotifier{}
-
-	default:
-		return nil
+		case "usb":
+			notifier := &USBNotifier{}
+			notifier.Init(ctx)
+			RegisterInstance("usb", notifier)
+		}
 	}
+}
 
-	readyChan := notifier.Run(ctx, nextEventChannel)
-	ready := <-readyChan
+// ------------------------------------------------------------------------------------------------
+func Run(ctx context.Context, nextEventChannel chan types.Event) {
+	go func() {
+		for {
+			select {
+			case e := <-nextEventChannel:
+				if e.Start.IsZero() {
+					continue
+				}
 
-	if !ready {
-		return types.NotifierNotFound{}
-	}
-
-	return nil
+				for _, notifier := range notifiers {
+					go notifier.Notify(e.Title, e.Start, e.Tier)
+				}
+			case <-ctx.Done():
+				log.Println("Stopping notifiers")
+				return
+			}
+		}
+	}()
 }
